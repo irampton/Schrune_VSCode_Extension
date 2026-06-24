@@ -1,0 +1,8 @@
+*.vsix
+
+# VS Code workspace state
+.vscode/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db

@@ -4,6 +4,10 @@
   "description": "Syntax highlighting, autocomplete, and CLI shortcuts for Schrune",
   "version": "0.1.0",
   "publisher": "irampton",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/irampton/Schrune_VSCode_Extension.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -20,6 +24,15 @@
     "onView:schruneCliView"
   ],
   "main": "./extension.js",
+  "files": [
+    "extension.js",
+    "language-configuration.json",
+    "media/**",
+    "snippets/**",
+    "syntaxes/**",
+    "README.md",
+    "LICENSE"
+  ],
   "contributes": {
     "languages": [
       {
