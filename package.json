@@ -16,8 +16,7 @@
     "onCommand:schrune.buildCurrentFile",
     "onCommand:schrune.buildFile",
     "onCommand:schrune.addPart",
-    "onCommand:schrune.openSchematic",
-    "onCommand:schrune.openLayout",
+    "onCommand:schrune.openProject",
     "onView:schruneCliView"
   ],
   "main": "./extension.js",
@@ -61,12 +60,8 @@
         "title": "Schrune: Add LCSC Part..."
       },
       {
-        "command": "schrune.openSchematic",
-        "title": "Schrune: Open Schematic in KiCad"
-      },
-      {
-        "command": "schrune.openLayout",
-        "title": "Schrune: Open Layout in KiCad"
+        "command": "schrune.openProject",
+        "title": "Schrune: Open Project in KiCad"
       },
       {
         "command": "schrune.refreshCliView",
@@ -106,7 +101,7 @@
         "schrune.kicad.executable": {
           "type": "string",
           "default": "",
-          "description": "KiCad executable used by the open schematic/layout commands. Leave empty to use kicad on PATH."
+          "description": "KiCad executable used by the open project command. Leave empty to use kicad on PATH."
         }
       }
     }

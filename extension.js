@@ -2,7 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const vscode = require("vscode");
 
 const SCHRUNE_KEYWORDS = [
@@ -31,11 +31,6 @@ const SCHRUNE_NET_TYPES = [
   "uart",
   "spi",
 ];
-
-const SCHRUNE_OPENABLE_OUTPUTS = {
-  schematic: "kicad_sch",
-  layout: "kicad_pcb",
-};
 
 let outputChannel;
 let cliProvider;
@@ -67,10 +62,7 @@ function activate(context) {
     vscode.commands.registerCommand("schrune.addPart", () => addPart(context))
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("schrune.openSchematic", () => openGeneratedKiCadFile(context, "schematic"))
-  );
-  context.subscriptions.push(
-    vscode.commands.registerCommand("schrune.openLayout", () => openGeneratedKiCadFile(context, "layout"))
+    vscode.commands.registerCommand("schrune.openProject", () => openGeneratedKiCadProject(context))
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("schrune.refreshCliView", () => {
@@ -157,20 +149,18 @@ class SchruneCliProvider {
 
   getChildren(element) {
     if (element) {
-      return element.children || [];
+      return [];
     }
     return [
-      makeGroupItem("Parts", [
-        makeActionItem("Add LCSC part...", "Download and scaffold a part library entry", "schrune.addPart"),
-      ]),
-      makeGroupItem("Build", [
-        makeActionItem("Build current file", "Run Schrune build for the active editor", "schrune.buildCurrentFile"),
-        makeActionItem("Build file...", "Choose a .schrune file and build it", "schrune.buildFile"),
-      ]),
-      makeGroupItem("KiCad", [
-        makeActionItem("Open schematic in KiCad", "Open the generated schematic for the active design", "schrune.openSchematic"),
-        makeActionItem("Open layout in KiCad", "Open the generated PCB layout for the active design", "schrune.openLayout"),
-      ]),
+      makeSectionItem("Parts"),
+      makeActionItem("Add LCSC part...", "Download and scaffold a part library entry", "schrune.addPart"),
+      makeSpacerItem(),
+      makeSectionItem("Build"),
+      makeActionItem("Build current file", "Run Schrune build for the active editor", "schrune.buildCurrentFile"),
+      makeActionItem("Build file...", "Choose a .schrune file and build it", "schrune.buildFile"),
+      makeSpacerItem(),
+      makeSectionItem("KiCad"),
+      makeActionItem("Open project in KiCad", "Open the generated KiCad project for the active design", "schrune.openProject"),
     ];
   }
 }
@@ -183,10 +173,16 @@ function makeActionItem(label, description, command) {
   return item;
 }
 
-function makeGroupItem(label, children) {
-  const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.Collapsed);
-  item.children = children;
-  item.contextValue = "schruneCliGroup";
+function makeSectionItem(label) {
+  const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
+  item.contextValue = "schruneSection";
+  item.description = "";
+  return item;
+}
+
+function makeSpacerItem() {
+  const item = new vscode.TreeItem(" ", vscode.TreeItemCollapsibleState.None);
+  item.contextValue = "schruneSpacer";
   return item;
 }
 
@@ -879,6 +875,61 @@ function getKiCadConfig() {
   };
 }
 
+function resolveKiCadExecutable() {
+  const configured = getKiCadConfig().executable;
+  if (configured) {
+    return configured;
+  }
+
+  const pathCandidates = [];
+  if (process.platform === "win32") {
+    const programFiles = [process.env["ProgramFiles"], process.env["ProgramFiles(x86)"]].filter(Boolean);
+    for (const root of programFiles) {
+      const kicadRoot = path.join(root, "KiCad");
+      if (!fs.existsSync(kicadRoot)) {
+        continue;
+      }
+
+      for (const versionDir of safeReadDir(kicadRoot)) {
+        pathCandidates.push(path.join(kicadRoot, versionDir, "bin", "kicad.exe"));
+        pathCandidates.push(path.join(kicadRoot, versionDir, "bin", "kicad"));
+      }
+    }
+  }
+
+  pathCandidates.push("kicad", "kicad.exe");
+
+  for (const candidate of pathCandidates) {
+    if (isExecutableOnPath(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function safeReadDir(dirPath) {
+  try {
+    return fs.readdirSync(dirPath, { withFileTypes: false });
+  } catch {
+    return [];
+  }
+}
+
+function isExecutableOnPath(command) {
+  if (!command) {
+    return false;
+  }
+
+  if (path.isAbsolute(command)) {
+    return fs.existsSync(command);
+  }
+
+  const check = process.platform === "win32" ? "where" : "which";
+  const result = spawnSync(check, [command], { stdio: "ignore", windowsHide: true });
+  return result.status === 0;
+}
+
 function normalizeCommand(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -964,55 +1015,57 @@ async function addPart(context) {
   await runCli(context, "add", [partNumber.trim().toUpperCase()], vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 }
 
-async function openGeneratedKiCadFile(context, kind) {
-  const sourceFile = await resolveSourceFileForCurrentEditorOrPick();
+async function openGeneratedKiCadProject(context) {
+  const sourceFile = resolveActiveSchruneFile();
   if (!sourceFile) {
+    vscode.window.showErrorMessage("Open a Schrune file first.");
     return;
   }
 
-  const outputPath = getGeneratedKiCadPath(sourceFile, kind);
+  const outputPath = getGeneratedKiCadProjectPath(sourceFile);
   if (!fs.existsSync(outputPath)) {
-    vscode.window.showErrorMessage(`Missing generated KiCad file: ${outputPath}. Build the Schrune file first.`);
+    vscode.window.showErrorMessage(`Missing generated KiCad project: ${outputPath}. Build the Schrune file first.`);
     return;
   }
 
   await runKiCad(context, outputPath, path.dirname(sourceFile));
 }
 
-function getGeneratedKiCadPath(sourceFile, kind) {
-  const ext = SCHRUNE_OPENABLE_OUTPUTS[kind];
+function getGeneratedKiCadProjectPath(sourceFile) {
+  const rootDir = path.dirname(sourceFile);
+  const projectDir = path.join(rootDir, "KiCad");
   const stem = path.basename(sourceFile, ".schrune");
-  return path.join(path.dirname(sourceFile), "KiCad", `${stem}.${ext}`);
+  const rootName = path.basename(rootDir);
+  const candidates = listKiCadProjectFiles(projectDir);
+  if (!candidates.length) {
+    return path.join(projectDir, `${stem}.kicad_pro`);
+  }
+
+  const preferred = candidates.find((filePath) => {
+    const base = path.basename(filePath, ".kicad_pro");
+    return base === stem || base === rootName;
+  });
+
+  return preferred || candidates.sort((left, right) => left.localeCompare(right))[0];
 }
 
-async function resolveSourceFileForCurrentEditorOrPick() {
+function resolveActiveSchruneFile() {
   const editor = vscode.window.activeTextEditor;
   if (editor && editor.document.fileName.toLowerCase().endsWith(".schrune")) {
     return editor.document.uri.fsPath;
   }
-
-  return pickSchruneFile();
+  return undefined;
 }
 
-async function pickSchruneFile() {
-  const files = await vscode.workspace.findFiles("**/*.schrune", "**/node_modules/**");
-  if (!files.length) {
-    vscode.window.showErrorMessage("No .schrune files found in the workspace.");
-    return undefined;
+function listKiCadProjectFiles(projectDir) {
+  if (!fs.existsSync(projectDir)) {
+    return [];
   }
 
-  const picked = await vscode.window.showQuickPick(
-    files.map((uri) => ({
-      label: path.basename(uri.fsPath),
-      description: path.relative(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || path.dirname(uri.fsPath), uri.fsPath),
-      uri,
-    })),
-    {
-      title: "Build Schrune file",
-    }
-  );
-
-  return picked?.uri.fsPath;
+  return fs
+    .readdirSync(projectDir)
+    .filter((entry) => entry.toLowerCase().endsWith(".kicad_pro"))
+    .map((entry) => path.join(projectDir, entry));
 }
 
 async function runCli(context, subcommand, args, cwd) {
@@ -1061,8 +1114,12 @@ async function runCli(context, subcommand, args, cwd) {
 }
 
 async function runKiCad(context, filePath, cwd) {
-  const configured = getKiCadConfig();
-  const command = configured.executable || "kicad";
+  const command = resolveKiCadExecutable();
+  if (!command) {
+    vscode.window.showErrorMessage("Could not find KiCad. Set schrune.kicad.executable to your KiCad binary.");
+    return;
+  }
+
   const workingDir = cwd || path.dirname(filePath);
   const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
 

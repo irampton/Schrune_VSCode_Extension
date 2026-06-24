@@ -19,17 +19,17 @@ If you want to use a local Schrune checkout directly, set:
 - `schrune.cli.executable` to `node`
 - `schrune.cli.scriptPath` to the Schrune `src/app.js` path
 
-To open generated files in KiCad, set `schrune.kicad.executable` if `kicad` is not already on `PATH`.
+To open the generated KiCad project, set `schrune.kicad.executable` if `kicad` is not already on `PATH`.
 
 ## Commands
 
 - `Schrune: Build Current File`
 - `Schrune: Build File...`
 - `Schrune: Add LCSC Part...`
-- `Schrune: Open Schematic in KiCad`
-- `Schrune: Open Layout in KiCad`
+- `Schrune: Open Project in KiCad`
 
 ## Notes
 
 - `#include` files are suggested from the workspace.
+- KiCad open uses the active Schrune file's sibling `KiCad/` folder and never prompts for a file.
 - The extension is intentionally lightweight. It does not replace the Schrune compiler.
