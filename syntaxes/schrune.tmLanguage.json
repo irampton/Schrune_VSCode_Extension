@@ -1,0 +1,114 @@
+{
+  "name": "Schrune",
+  "scopeName": "source.schrune",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#preprocessor" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#operators" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#propertyAccess" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.schrune",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.include.schrune",
+          "match": "^\\s*#include\\b.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.schrune",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.schrune",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.schrune",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.schrune",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.schrune",
+          "match": "\\b(?:0x[0-9A-Fa-f]+|\\d*\\.?\\d+(?:[eE][+-]?\\d+)?)(?:[A-Za-z_][\\w]*)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.connection.schrune",
+          "match": "~>|~"
+        },
+        {
+          "name": "keyword.operator.assignment.schrune",
+          "match": "=|:"
+        },
+        {
+          "name": "punctuation.separator.schrune",
+          "match": "[,;]"
+        },
+        {
+          "name": "punctuation.accessor.schrune",
+          "match": "\\."
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.schrune",
+          "match": "\\b(?:module|part|rail|net|val|new|if|else|for|return|top)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.net.schrune",
+          "match": "\\b(?:i2c|uart|spi)\\b"
+        },
+        {
+          "name": "support.class.builtin-part.schrune",
+          "match": "\\b(?:Resistor|Capacitor|Inductor|Diode)\\b"
+        }
+      ]
+    },
+    "propertyAccess": {
+      "patterns": [
+        {
+          "name": "variable.other.property.schrune",
+          "match": "\\.(?:h|l|name|voltage|SDA|SCL|RX|TX|MOSI|MISO|CLK)\\b"
+        }
+      ]
+    }
+  }
+}

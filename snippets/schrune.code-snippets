@@ -1,0 +1,37 @@
+{
+  "Schrune Top Module": {
+    "prefix": "schrune-top",
+    "body": [
+      "#include \"${1:Parts.schrune}\"",
+      "",
+      "module top () {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Create a top-level Schrune file"
+  },
+  "Schrune Part Instance": {
+    "prefix": "schrune-part",
+    "body": "part ${1:name} = new ${2:PartType}(${3});",
+    "description": "Create a part instance"
+  },
+  "Schrune Typed Net": {
+    "prefix": "schrune-net",
+    "body": "net<${1:i2c}> ${2:bus};",
+    "description": "Create a typed net"
+  },
+  "Schrune Rail": {
+    "prefix": "schrune-rail",
+    "body": [
+      "rail ${1:power};",
+      "${1:power}.h.name = \"${2:VCC}\";",
+      "${1:power}.l.name = \"${3:GND}\";"
+    ],
+    "description": "Create a rail"
+  },
+  "Schrune Include": {
+    "prefix": "schrune-include",
+    "body": "#include \"${1:Parts.schrune}\"",
+    "description": "Include another Schrune file"
+  }
+}

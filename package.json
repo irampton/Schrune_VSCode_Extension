@@ -1,0 +1,119 @@
+{
+  "name": "schrune-vscode-extension",
+  "displayName": "Schrune",
+  "description": "Syntax highlighting, autocomplete, and CLI shortcuts for Schrune",
+  "version": "0.1.0",
+  "publisher": "irampton",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:schrune",
+    "onCommand:schrune.buildCurrentFile",
+    "onCommand:schrune.buildFile",
+    "onCommand:schrune.addPart",
+    "onCommand:schrune.openSchematic",
+    "onCommand:schrune.openLayout",
+    "onView:schruneCliView"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "schrune",
+        "aliases": [
+          "Schrune"
+        ],
+        "extensions": [
+          ".schrune"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "schrune",
+        "scopeName": "source.schrune",
+        "path": "./syntaxes/schrune.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "schrune",
+        "path": "./snippets/schrune.code-snippets"
+      }
+    ],
+    "commands": [
+      {
+        "command": "schrune.buildCurrentFile",
+        "title": "Schrune: Build Current File"
+      },
+      {
+        "command": "schrune.buildFile",
+        "title": "Schrune: Build File..."
+      },
+      {
+        "command": "schrune.addPart",
+        "title": "Schrune: Add LCSC Part..."
+      },
+      {
+        "command": "schrune.openSchematic",
+        "title": "Schrune: Open Schematic in KiCad"
+      },
+      {
+        "command": "schrune.openLayout",
+        "title": "Schrune: Open Layout in KiCad"
+      },
+      {
+        "command": "schrune.refreshCliView",
+        "title": "Schrune: Refresh CLI Panel"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "schruneTools",
+          "title": "Schrune",
+          "icon": "media/schrune.svg"
+        }
+      ]
+    },
+    "views": {
+      "schruneTools": [
+        {
+          "id": "schruneCliView",
+          "name": "CLI"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Schrune",
+      "properties": {
+        "schrune.cli.executable": {
+          "type": "string",
+          "default": "",
+          "description": "CLI executable to run for Schrune commands. Leave empty to auto-detect a local Schrune checkout or fall back to schrune on PATH."
+        },
+        "schrune.cli.scriptPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to the Schrune Node entrypoint. Set this when schrune.cli.executable should be node."
+        },
+        "schrune.kicad.executable": {
+          "type": "string",
+          "default": "",
+          "description": "KiCad executable used by the open schematic/layout commands. Leave empty to use kicad on PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --check extension.js"
+  },
+  "devDependencies": {},
+  "dependencies": {}
+}
