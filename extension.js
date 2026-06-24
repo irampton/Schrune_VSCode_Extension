@@ -94,7 +94,7 @@ class SchruneCompletionProvider {
     const textBefore = document.getText(new vscode.Range(new vscode.Position(0, 0), position));
     const currentWord = extractCurrentWord(linePrefix);
     const contextKind = detectCompletionContext(linePrefix, textBefore);
-    const symbols = await collectProjectSymbols(document);
+    const index = await buildProjectIndex(document);
 
     if (contextKind === "include") {
       return buildIncludeCompletions(document, linePrefix, currentWord);
@@ -103,8 +103,8 @@ class SchruneCompletionProvider {
     if (contextKind === "new") {
       return buildNamedSymbolCompletions(currentWord, [
         ...SCHRUNE_BUILTINS.map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Built-in part" })),
-        ...[...symbols.parts].map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Part definition" })),
-        ...[...symbols.modules].map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Module definition" })),
+        ...[...index.parts.keys()].map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Part definition" })),
+        ...[...index.modules.keys()].map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Module definition" })),
       ]);
     }
 
@@ -118,8 +118,9 @@ class SchruneCompletionProvider {
 
     if (contextKind === "connection" || contextKind === "identifier") {
       const items = buildNamedSymbolCompletions(currentWord, [
-        ...[...symbols.nets].map((name) => ({ name, kind: vscode.CompletionItemKind.Variable, detail: "Net" })),
-        ...[...symbols.instances].map((name) => ({
+        ...[...index.nets].map((name) => ({ name, kind: vscode.CompletionItemKind.Variable, detail: "Net" })),
+        ...[...index.rails].map((name) => ({ name, kind: vscode.CompletionItemKind.Variable, detail: "Rail" })),
+        ...[...index.instances.keys()].map((name) => ({
           name,
           kind: vscode.CompletionItemKind.Reference,
           detail: "Part or module instance",
@@ -130,7 +131,12 @@ class SchruneCompletionProvider {
       }
     }
 
-    return buildGeneralCompletions(currentWord, symbols);
+    const memberCompletions = buildMemberAccessCompletions(linePrefix, currentWord, index);
+    if (memberCompletions) {
+      return memberCompletions;
+    }
+
+    return buildGeneralCompletions(currentWord, index);
   }
 }
 
@@ -151,14 +157,20 @@ class SchruneCliProvider {
 
   getChildren(element) {
     if (element) {
-      return [];
+      return element.children || [];
     }
     return [
-      makeActionItem("Build current file", "Run Schrune build for the active editor", "schrune.buildCurrentFile"),
-      makeActionItem("Build file...", "Choose a .schrune file and build it", "schrune.buildFile"),
-      makeActionItem("Add LCSC part...", "Download and scaffold a part library entry", "schrune.addPart"),
-      makeActionItem("Open schematic in KiCad", "Open the generated schematic for the active design", "schrune.openSchematic"),
-      makeActionItem("Open layout in KiCad", "Open the generated PCB layout for the active design", "schrune.openLayout"),
+      makeGroupItem("Parts", [
+        makeActionItem("Add LCSC part...", "Download and scaffold a part library entry", "schrune.addPart"),
+      ]),
+      makeGroupItem("Build", [
+        makeActionItem("Build current file", "Run Schrune build for the active editor", "schrune.buildCurrentFile"),
+        makeActionItem("Build file...", "Choose a .schrune file and build it", "schrune.buildFile"),
+      ]),
+      makeGroupItem("KiCad", [
+        makeActionItem("Open schematic in KiCad", "Open the generated schematic for the active design", "schrune.openSchematic"),
+        makeActionItem("Open layout in KiCad", "Open the generated PCB layout for the active design", "schrune.openLayout"),
+      ]),
     ];
   }
 }
@@ -168,6 +180,13 @@ function makeActionItem(label, description, command) {
   item.description = description;
   item.command = { command, title: label };
   item.contextValue = "schruneCliAction";
+  return item;
+}
+
+function makeGroupItem(label, children) {
+  const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.Collapsed);
+  item.children = children;
+  item.contextValue = "schruneCliGroup";
   return item;
 }
 
@@ -258,14 +277,15 @@ function buildNamedSymbolCompletions(prefix, entries) {
     });
 }
 
-function buildGeneralCompletions(prefix, symbols) {
+function buildGeneralCompletions(prefix, index) {
   const normalizedPrefix = prefix.toLowerCase();
   const candidates = [
     ...SCHRUNE_KEYWORDS.map((name) => ({ name, kind: vscode.CompletionItemKind.Keyword, detail: "Schrune keyword" })),
-    ...[...symbols.parts].map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Part definition" })),
-    ...[...symbols.modules].map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Module definition" })),
-    ...[...symbols.nets].map((name) => ({ name, kind: vscode.CompletionItemKind.Variable, detail: "Net" })),
-    ...[...symbols.instances].map((name) => ({
+    ...[...index.parts.keys()].map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Part definition" })),
+    ...[...index.modules.keys()].map((name) => ({ name, kind: vscode.CompletionItemKind.Class, detail: "Module definition" })),
+    ...[...index.nets.keys()].map((name) => ({ name, kind: vscode.CompletionItemKind.Variable, detail: "Net" })),
+    ...[...index.rails.keys()].map((name) => ({ name, kind: vscode.CompletionItemKind.Variable, detail: "Rail" })),
+    ...[...index.instances.keys()].map((name) => ({
       name,
       kind: vscode.CompletionItemKind.Reference,
       detail: "Part or module instance",
@@ -302,6 +322,395 @@ async function buildIncludeCompletions(document, linePrefix, currentWord) {
       item.detail = "Schrune include";
       return item;
     });
+}
+
+function buildMemberAccessCompletions(linePrefix, currentWord, index) {
+  const memberMatch = linePrefix.match(/([A-Za-z_]\w*(?:\[[^\]]+\]|\.[A-Za-z_]\w*)*)\.$/);
+  if (!memberMatch) {
+    return undefined;
+  }
+
+  const expression = memberMatch[1];
+  const typeInfo = resolveExpressionType(expression, index);
+  if (!typeInfo) {
+    return buildNamedSymbolCompletions(currentWord, buildFallbackMemberEntries(index));
+  }
+
+  return buildNamedSymbolCompletions(currentWord, typeInfo.members);
+}
+
+function buildFallbackMemberEntries(index) {
+  const entries = [
+    ...[...index.parts.values()].flatMap((part) => [...part.pins].map((name) => ({
+      name,
+      kind: vscode.CompletionItemKind.Field,
+      detail: "Part pin",
+    }))),
+    ...[...index.modules.values()].flatMap((module) => [...module.nets].map((name) => ({
+      name,
+      kind: vscode.CompletionItemKind.Field,
+      detail: "Module net",
+    }))),
+  ];
+  return dedupeCompletionEntries(entries);
+}
+
+function resolveExpressionType(expression, index) {
+  const baseMatch = expression.match(/^([A-Za-z_]\w*)/);
+  if (!baseMatch) {
+    return undefined;
+  }
+
+  const baseName = baseMatch[1];
+  const tail = expression.slice(baseName.length);
+
+  if (index.rails.has(baseName)) {
+    return {
+      kind: "rail",
+      members: [
+        { name: "h", kind: vscode.CompletionItemKind.Property, detail: "Rail high side" },
+        { name: "l", kind: vscode.CompletionItemKind.Property, detail: "Rail low side" },
+        { name: "name", kind: vscode.CompletionItemKind.Property, detail: "Rail name" },
+        { name: "voltage", kind: vscode.CompletionItemKind.Property, detail: "Rail voltage" },
+      ],
+    };
+  }
+
+  const netEntry = index.nets.get(baseName);
+  if (netEntry && netEntry.type) {
+    return {
+      kind: "typedNet",
+      members: netTypeMembers(netEntry.type),
+    };
+  }
+
+  const instance = index.instances.get(baseName);
+  if (!instance) {
+    return undefined;
+  }
+
+  if (instance.kind === "module") {
+    const moduleDef = index.modules.get(instance.typeName);
+    if (moduleDef) {
+      return {
+        kind: "moduleInstance",
+        members: dedupeCompletionEntries([...moduleDef.nets].map((name) => ({
+          name,
+          kind: vscode.CompletionItemKind.Field,
+          detail: "Module net",
+        }))),
+      };
+    }
+  }
+
+  if (instance.kind === "part") {
+    const partDef = index.parts.get(instance.typeName);
+    if (partDef) {
+      return {
+        kind: "partInstance",
+        members: [...partDef.pins].map((name) => ({
+          name,
+          kind: vscode.CompletionItemKind.Field,
+          detail: "Part pin",
+        })),
+      };
+    }
+  }
+
+  if (!tail || tail === ".h" || tail === ".l") {
+    return undefined;
+  }
+
+  return {
+    kind: "unknown",
+    members: buildFallbackMemberEntries(index),
+  };
+}
+
+async function buildProjectIndex(document) {
+  const index = {
+    parts: new Map(),
+    modules: new Map(),
+    nets: new Map(),
+    rails: new Set(),
+    instances: new Map(),
+  };
+  const visited = new Set();
+
+  await collectProjectFile(document.uri.fsPath, document.getText(), index, visited, true);
+  return index;
+}
+
+async function collectProjectFile(filePath, sourceText, index, visited, isRoot) {
+  const resolvedPath = path.resolve(filePath);
+  if (visited.has(resolvedPath)) {
+    return;
+  }
+
+  visited.add(resolvedPath);
+
+  const source = isRoot ? sourceText : readTextFileIfExists(resolvedPath);
+  if (source === undefined) {
+    return;
+  }
+
+  const normalizedSource = stripComments(source);
+  collectSourceDefinitions(normalizedSource, index);
+
+  for (const includeName of extractIncludes(normalizedSource)) {
+    const includePath = await resolveIncludePath(path.dirname(resolvedPath), includeName);
+    if (includePath) {
+      await collectProjectFile(includePath, undefined, index, visited, false);
+    }
+  }
+}
+
+function collectSourceDefinitions(source, index) {
+  for (const block of extractNamedBlocks(source, "part", false)) {
+    index.parts.set(block.name, {
+      filePath: block.filePath,
+      pins: parsePartPins(block.body),
+    });
+  }
+
+  for (const block of extractNamedBlocks(source, "module", true)) {
+    index.modules.set(block.name, {
+      filePath: block.filePath,
+      parameters: parseParameterList(block.parameters),
+      nets: parseModuleNets(block.body),
+    });
+  }
+
+  collectFlatDeclarations(source, index);
+}
+
+function collectFlatDeclarations(source, index) {
+  const netPattern = /^\s*net(?:<([A-Za-z_]\w*)>)?\s+([A-Za-z_]\w*)/gm;
+  const railPattern = /^\s*rail\s+([A-Za-z_]\w*)/gm;
+  const moduleInstancePattern = /^\s*mod\s+([A-Za-z_]\w*)\s*=\s*new\s+([A-Za-z_]\w*)/gm;
+  const arrayPartPattern = /^\s*part\[\d+\]\s+([A-Za-z_]\w*)\s*=\s*new\s+([A-Za-z_]\w*)/gm;
+  const partInstancePattern = /^\s*(?:part\s+)?([A-Za-z_]\w*)\s*=\s*new\s+([A-Za-z_]\w*)/gm;
+
+  for (const match of source.matchAll(netPattern)) {
+    index.nets.set(match[2], { type: match[1] ? normalizeNetType(match[1]) : undefined });
+  }
+
+  for (const match of source.matchAll(railPattern)) {
+    index.rails.add(match[1]);
+  }
+
+  for (const match of source.matchAll(moduleInstancePattern)) {
+    index.instances.set(match[1], { kind: "module", typeName: match[2] });
+  }
+
+  for (const match of source.matchAll(arrayPartPattern)) {
+    index.instances.set(match[1], { kind: "part", typeName: match[2] });
+  }
+
+  for (const match of source.matchAll(partInstancePattern)) {
+    const instanceName = match[1];
+    const typeName = match[2];
+    if (isDeclarationKeyword(instanceName)) {
+      continue;
+    }
+    const kind = index.modules.has(typeName) ? "module" : "part";
+    index.instances.set(instanceName, { kind, typeName });
+  }
+}
+
+function isDeclarationKeyword(value) {
+  return new Set(["module", "part", "net", "rail", "val", "mod", "if", "for", "return"]).has(value);
+}
+
+function extractNamedBlocks(source, keyword, allowParameters) {
+  const blocks = [];
+  const pattern = new RegExp(`\\b${keyword}\\s+([A-Za-z_]\\w*)${allowParameters ? "\\s*(\\([^)]*\\))?" : ""}\\s*\\{`, "g");
+  let match;
+
+  while ((match = pattern.exec(source)) !== null) {
+    const openIndex = source.indexOf("{", match.index);
+    const closeIndex = findMatchingDelimiter(source, openIndex, "{", "}");
+    blocks.push({
+      name: match[1],
+      parameters: match[2] ? match[2].slice(1, -1) : "",
+      body: source.slice(openIndex + 1, closeIndex),
+      filePath: undefined,
+    });
+    pattern.lastIndex = closeIndex + 1;
+  }
+
+  return blocks;
+}
+
+function findMatchingDelimiter(source, openIndex, openChar, closeChar) {
+  let depth = 0;
+  let inString = false;
+  let stringChar = "";
+
+  for (let i = openIndex; i < source.length; i++) {
+    const char = source[i];
+    const prev = source[i - 1];
+
+    if (inString) {
+      if (char === stringChar && prev !== "\\") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      inString = true;
+      stringChar = char;
+      continue;
+    }
+
+    if (char === openChar) {
+      depth++;
+    } else if (char === closeChar) {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+
+  throw new Error(`Could not find matching ${closeChar}`);
+}
+
+function splitTopLevelEntries(body) {
+  const entries = [];
+  let start = 0;
+  let depth = 0;
+  let inString = false;
+  let stringChar = "";
+
+  for (let i = 0; i <= body.length; i++) {
+    const char = body[i];
+    const prev = body[i - 1];
+
+    if (inString) {
+      if (char === stringChar && prev !== "\\") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      inString = true;
+      stringChar = char;
+      continue;
+    }
+
+    if (char === "[" || char === "{" || char === "(") {
+      depth++;
+    } else if (char === "]" || char === "}" || char === ")") {
+      depth--;
+    }
+
+    if ((char === "," || char === "\n" || i === body.length) && depth === 0) {
+      const entry = body.slice(start, i).trim().replace(/,$/, "");
+      if (entry) {
+        entries.push(entry);
+      }
+      start = i + 1;
+    }
+  }
+
+  return entries;
+}
+
+function parsePartPins(body) {
+  const pinsMatch = body.match(/\bpins\s*:\s*\[/);
+  if (!pinsMatch) {
+    return new Set();
+  }
+
+  const openIndex = body.indexOf("[", pinsMatch.index);
+  const closeIndex = findMatchingDelimiter(body, openIndex, "[", "]");
+  const pinsBody = body.slice(openIndex + 1, closeIndex);
+  const pins = new Set();
+  collectPinNames(pinsBody, pins);
+  return pins;
+}
+
+function collectPinNames(body, pins, prefix = "") {
+  for (const entry of splitTopLevelEntries(body)) {
+    const objectMatch = entry.match(/^([A-Za-z_]\w*)\s*:\s*\{([\s\S]*)\}$/);
+    if (objectMatch) {
+      const name = prefix ? `${prefix}.${objectMatch[1]}` : objectMatch[1];
+      pins.add(name);
+      collectPinNames(objectMatch[2], pins, name);
+      continue;
+    }
+
+    const arrayMatch = entry.match(/^([A-Za-z_]\w*)\s*:\s*\[([\s\S]*)\]$/);
+    if (arrayMatch) {
+      const name = prefix ? `${prefix}.${arrayMatch[1]}` : arrayMatch[1];
+      pins.add(name);
+      collectPinNames(arrayMatch[2], pins, name);
+      continue;
+    }
+
+    const pinMatch = entry.match(/^([A-Za-z_]\w*|\d+)\s*:\s*.+$/);
+    if (pinMatch) {
+      const name = prefix ? `${prefix}.${pinMatch[1]}` : pinMatch[1];
+      pins.add(name);
+    }
+  }
+}
+
+function parseModuleNets(body) {
+  const nets = new Set();
+  const netPattern = /^\s*net(?:<([A-Za-z_]\w*)>)?\s+([A-Za-z_]\w*)/gm;
+
+  for (const match of body.matchAll(netPattern)) {
+    nets.add(match[2]);
+  }
+
+  return nets;
+}
+
+function parseParameterList(parametersText) {
+  if (!parametersText) {
+    return [];
+  }
+
+  return splitTopLevelEntries(parametersText)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => entry.replace(/=.*$/, "").trim())
+    .filter((entry) => /^[A-Za-z_]\w*$/.test(entry));
+}
+
+function normalizeNetType(type) {
+  return type ? String(type).trim() : undefined;
+}
+
+function netTypeMembers(type) {
+  const memberMap = {
+    i2c: ["SDA", "SCL"],
+    uart: ["RX", "TX"],
+    spi: ["MOSI", "MISO", "CLK"],
+  };
+
+  return (memberMap[type] || []).map((name) => ({
+    name,
+    kind: vscode.CompletionItemKind.Field,
+    detail: `${type} signal`,
+  }));
+}
+
+function dedupeCompletionEntries(entries) {
+  const seen = new Set();
+  const result = [];
+  for (const entry of entries) {
+    if (!entry || !entry.name || seen.has(entry.name)) {
+      continue;
+    }
+    seen.add(entry.name);
+    result.push(entry);
+  }
+  return result;
 }
 
 async function collectProjectSymbols(document) {
