@@ -37,6 +37,115 @@
     "LICENSE"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "editor.tokenColorCustomizations": {
+        "textMateRules": [
+          {
+            "scope": [
+              "keyword.declaration.schrune",
+              "storage.type.javascript.schrune"
+            ],
+            "settings": { "foreground": "#E57373" }
+          },
+          {
+            "scope": [
+              "keyword.control.schrune",
+              "punctuation.section.parentheses.schrune",
+              "punctuation.section.parentheses.begin.schrune",
+              "punctuation.section.parentheses.end.schrune",
+              "punctuation.section.brackets.schrune",
+              "punctuation.section.brackets.begin.schrune",
+              "punctuation.section.brackets.end.schrune",
+              "punctuation.section.braces.schrune",
+              "punctuation.definition.type.schrune",
+              "punctuation.definition.type.begin.schrune",
+              "punctuation.definition.type.end.schrune",
+              "variable.parameter.named.schrune",
+              "keyword.operator.named-argument.schrune"
+            ],
+            "settings": { "foreground": "#C586C0" }
+          },
+          {
+            "scope": [
+              "punctuation.section.module.begin.schrune",
+              "punctuation.section.module.end.schrune",
+              "variable.other.readwrite.javascript.schrune"
+            ],
+            "settings": { "foreground": "#FFD707" }
+          },
+          {
+            "scope": [
+              "entity.name.type.module.schrune",
+              "entity.name.variable.module.schrune",
+              "entity.name.type.part.schrune",
+              "entity.name.variable.part.schrune"
+            ],
+            "settings": { "foreground": "#4DC7AE" }
+          },
+          {
+            "scope": [
+              "constant.numeric.schrune",
+              "constant.language.boolean.schrune",
+              "string.quoted.double.schrune",
+              "string.quoted.single.schrune",
+              "constant.character.escape.schrune"
+            ],
+            "settings": { "foreground": "#9CDCFE" }
+          },
+          {
+            "scope": "entity.name.variable.net.schrune",
+            "settings": { "foreground": "#79C0FF" }
+          },
+          {
+            "scope": "variable.other.property.rail-side.schrune",
+            "settings": { "foreground": "#4FC3F7" }
+          },
+          {
+            "scope": "variable.other.property.declaration.schrune",
+            "settings": { "foreground": "#FF946C" }
+          },
+          {
+            "scope": "punctuation.separator.module-parameter.schrune",
+            "settings": { "foreground": "#FFFFFF" }
+          }
+        ]
+      },
+      "editor.semanticTokenColorCustomizations": {
+        "enabled": true,
+        "rules": {
+          "schruneNet:schrune": "#79C0FF",
+          "schruneComponent:schrune": "#4DC7AE",
+          "schruneLocal:schrune": "#FFD707"
+        }
+      }
+    },
+    "semanticTokenTypes": [
+      {
+        "id": "schruneNet",
+        "superType": "variable",
+        "description": "A Schrune net or rail"
+      },
+      {
+        "id": "schruneComponent",
+        "superType": "class",
+        "description": "A Schrune part or module"
+      },
+      {
+        "id": "schruneLocal",
+        "superType": "variable",
+        "description": "A Schrune let or const variable"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "schrune",
+        "scopes": {
+          "schruneNet": ["entity.name.variable.net.schrune"],
+          "schruneComponent": ["entity.name.variable.part.schrune"],
+          "schruneLocal": ["variable.other.readwrite.javascript.schrune"]
+        }
+      }
+    ],
     "languages": [
       {
         "id": "schrune",

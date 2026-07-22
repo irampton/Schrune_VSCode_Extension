@@ -32,6 +32,15 @@ const SCHRUNE_NET_TYPES = [
   "spi",
 ];
 
+const SCHRUNE_SEMANTIC_TOKEN_TYPES = [
+  "schruneNet",
+  "schruneComponent",
+  "schruneLocal",
+];
+const SCHRUNE_SEMANTIC_LEGEND = new vscode.SemanticTokensLegend(
+  SCHRUNE_SEMANTIC_TOKEN_TYPES
+);
+
 let outputChannel;
 let cliProvider;
 
@@ -49,6 +58,14 @@ function activate(context) {
       "<",
       "(",
       ","
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      { language: "schrune" },
+      new SchruneSemanticTokensProvider(),
+      SCHRUNE_SEMANTIC_LEGEND
     )
   );
 
@@ -96,6 +113,134 @@ function activate(context) {
 }
 
 function deactivate() {}
+
+class SchruneSemanticTokensProvider {
+  provideDocumentSemanticTokens(document) {
+    const builder = new vscode.SemanticTokensBuilder(SCHRUNE_SEMANTIC_LEGEND);
+    const source = document.getText();
+
+    for (const token of collectSemanticIdentifierTokens(source)) {
+      builder.push(
+        new vscode.Range(document.positionAt(token.start), document.positionAt(token.end)),
+        token.type
+      );
+    }
+
+    return builder.build();
+  }
+}
+
+function collectSemanticIdentifierTokens(source) {
+  const searchableSource = maskCommentsAndStrings(source);
+  const nets = collectMatches(searchableSource, /\b(?:net(?:\s*<[^>]+>)?|rail)\s+([A-Za-z_]\w*)/g, 1);
+  const components = new Set(SCHRUNE_BUILTINS);
+  const locals = collectMatches(searchableSource, /\b(?:let|const)\s+([A-Za-z_$][\w$]*)/g, 1);
+
+  addMatches(components, searchableSource, /\b(?:module|part)\s+([A-Za-z_]\w*)/g, 1);
+  addMatches(components, searchableSource, /\b(?:mod|part(?:\s*\[\s*\d+\s*\])?)\s+([A-Za-z_]\w*)\s*=/g, 1);
+  addMatches(components, searchableSource, /\b([A-Za-z_]\w*)\s*=\s*new\s+([A-Za-z_]\w*)/g, 1);
+  addMatches(components, searchableSource, /\b([A-Za-z_]\w*)\s*=\s*new\s+([A-Za-z_]\w*)/g, 2);
+
+  const tokens = [];
+  const identifierPattern = /[A-Za-z_$][\w$]*/g;
+  let match;
+
+  while ((match = identifierPattern.exec(searchableSource)) !== null) {
+    const name = match[0];
+    const previousCharacter = searchableSource[match.index - 1];
+    if (previousCharacter === ".") {
+      continue;
+    }
+
+    let type;
+    if (nets.has(name)) {
+      type = "schruneNet";
+    } else if (components.has(name)) {
+      type = "schruneComponent";
+    } else if (locals.has(name)) {
+      type = "schruneLocal";
+    }
+
+    if (type) {
+      tokens.push({ start: match.index, end: match.index + name.length, type });
+    }
+  }
+
+  const memberPattern = /\b([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)/g;
+  while ((match = memberPattern.exec(searchableSource)) !== null) {
+    if (!components.has(match[1])) {
+      continue;
+    }
+
+    const memberOffset = match[0].lastIndexOf(match[2]);
+    tokens.push({
+      start: match.index + memberOffset,
+      end: match.index + memberOffset + match[2].length,
+      type: "schruneNet",
+    });
+  }
+
+  return tokens.sort((left, right) => left.start - right.start);
+}
+
+function collectMatches(source, pattern, captureIndex) {
+  const values = new Set();
+  addMatches(values, source, pattern, captureIndex);
+  return values;
+}
+
+function addMatches(values, source, pattern, captureIndex) {
+  for (const match of source.matchAll(pattern)) {
+    values.add(match[captureIndex]);
+  }
+}
+
+function maskCommentsAndStrings(source) {
+  let result = "";
+  let quote = "";
+  let inComment = false;
+
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+
+    if (inComment) {
+      if (character === "\n") {
+        inComment = false;
+        result += character;
+      } else {
+        result += " ";
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (character === "\\" && index + 1 < source.length) {
+        result += "  ";
+        index++;
+      } else if (character === quote) {
+        quote = "";
+        result += " ";
+      } else {
+        result += character === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+
+    if (character === "/" && nextCharacter === "/") {
+      inComment = true;
+      result += "  ";
+      index++;
+    } else if (character === "\"" || character === "'") {
+      quote = character;
+      result += " ";
+    } else {
+      result += character;
+    }
+  }
+
+  return result;
+}
 
 class SchruneCompletionProvider {
   async provideCompletionItems(document, position) {

@@ -5,11 +5,19 @@
     { "include": "#comments" },
     { "include": "#preprocessor" },
     { "include": "#strings" },
+    { "include": "#moduleDeclarations" },
+    { "include": "#partDeclarations" },
+    { "include": "#netAndRailDeclarations" },
+    { "include": "#javascriptDeclarations" },
     { "include": "#numbers" },
+    { "include": "#booleans" },
+    { "include": "#propertyAccess" },
+    { "include": "#parenthesisBlock" },
     { "include": "#operators" },
     { "include": "#keywords" },
     { "include": "#types" },
-    { "include": "#propertyAccess" }
+    { "include": "#nestedBraceBlock" },
+    { "include": "#brackets" }
   ],
   "repository": {
     "comments": {
@@ -54,12 +62,157 @@
         }
       ]
     },
+    "moduleDeclarations": {
+      "patterns": [
+        {
+          "begin": "\\b(module)\\s+([A-Za-z_]\\w*)\\s*(\\()([^)]*)(\\))\\s*(\\{)",
+          "end": "(\\})",
+          "beginCaptures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "entity.name.type.module.schrune" },
+            "3": { "name": "punctuation.section.module.begin.schrune" },
+            "4": {
+              "name": "meta.module.parameters.schrune",
+              "patterns": [
+                {
+                  "name": "punctuation.separator.module-parameter.schrune",
+                  "match": ","
+                },
+                { "include": "$self" }
+              ]
+            },
+            "5": { "name": "punctuation.section.module.end.schrune" },
+            "6": { "name": "punctuation.section.module.begin.schrune" }
+          },
+          "endCaptures": {
+            "1": { "name": "punctuation.section.module.end.schrune" }
+          },
+          "patterns": [
+            { "include": "$self" }
+          ]
+        }
+      ]
+    },
+    "partDeclarations": {
+      "patterns": [
+        {
+          "match": "\\b(part)\\s+([A-Za-z_]\\w*)\\s*(\\{)",
+          "captures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "entity.name.type.part.schrune" },
+            "3": { "name": "punctuation.section.braces.begin.schrune" }
+          }
+        },
+        {
+          "match": "\\b(part)(\\s*\\[)(\\d+)(\\])\\s+([A-Za-z_]\\w*)\\s*(=)\\s*(new)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "punctuation.section.brackets.begin.schrune" },
+            "3": { "name": "constant.numeric.schrune" },
+            "4": { "name": "punctuation.section.brackets.end.schrune" },
+            "5": { "name": "entity.name.variable.part.schrune" },
+            "6": { "name": "keyword.operator.assignment.schrune" },
+            "7": { "name": "keyword.declaration.schrune" },
+            "8": { "name": "entity.name.type.part.schrune" }
+          }
+        },
+        {
+          "match": "\\b(part)\\s+([A-Za-z_]\\w*)\\s*(=)\\s*(new)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "entity.name.variable.part.schrune" },
+            "3": { "name": "keyword.operator.assignment.schrune" },
+            "4": { "name": "keyword.declaration.schrune" },
+            "5": { "name": "entity.name.type.part.schrune" }
+          }
+        },
+        {
+          "match": "\\b(mod)\\s+([A-Za-z_]\\w*)\\s*(=)\\s*(new)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "entity.name.variable.module.schrune" },
+            "3": { "name": "keyword.operator.assignment.schrune" },
+            "4": { "name": "keyword.declaration.schrune" },
+            "5": { "name": "entity.name.type.module.schrune" }
+          }
+        },
+        {
+          "match": "\\b([A-Za-z_]\\w*)\\s*(=)\\s*(new)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": { "name": "entity.name.variable.part.schrune" },
+            "2": { "name": "keyword.operator.assignment.schrune" },
+            "3": { "name": "keyword.declaration.schrune" },
+            "4": { "name": "entity.name.type.part.schrune" }
+          }
+        }
+      ]
+    },
+    "netAndRailDeclarations": {
+      "patterns": [
+        {
+          "match": "\\b(net)(\\s*<)([A-Za-z_]\\w*)(>)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "punctuation.definition.type.begin.schrune" },
+            "3": { "name": "support.type.net.schrune" },
+            "4": { "name": "punctuation.definition.type.end.schrune" },
+            "5": { "name": "entity.name.variable.net.schrune" }
+          }
+        },
+        {
+          "match": "\\b(net|rail)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "entity.name.variable.net.schrune" }
+          }
+        }
+      ]
+    },
+    "javascriptDeclarations": {
+      "patterns": [
+        {
+          "match": "\\b(let|const)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": { "name": "storage.type.javascript.schrune" },
+            "2": { "name": "variable.other.readwrite.javascript.schrune" }
+          }
+        }
+      ]
+    },
     "numbers": {
       "patterns": [
         {
           "name": "constant.numeric.schrune",
           "match": "\\b(?:0x[0-9A-Fa-f]+|\\d*\\.?\\d+(?:[eE][+-]?\\d+)?)(?:[A-Za-z_][\\w]*)?\\b"
         }
+      ]
+    },
+    "booleans": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.schrune",
+          "match": "\\b(?:true|false)\\b"
+        }
+      ]
+    },
+    "parenthesisBlock": {
+      "begin": "(\\()",
+      "end": "(\\))",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.parentheses.begin.schrune" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.parentheses.end.schrune" }
+      },
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_]\\w*)(\\s*)(=)",
+          "captures": {
+            "1": { "name": "variable.parameter.named.schrune" },
+            "3": { "name": "keyword.operator.named-argument.schrune" }
+          }
+        },
+        { "include": "$self" }
       ]
     },
     "operators": {
@@ -85,8 +238,12 @@
     "keywords": {
       "patterns": [
         {
+          "name": "keyword.declaration.schrune",
+          "match": "\\b(?:module|part|rail|net|val|mod|new)\\b"
+        },
+        {
           "name": "keyword.control.schrune",
-          "match": "\\b(?:module|part|rail|net|val|new|if|else|for|return|top)\\b"
+          "match": "\\b(?:if|else|for|return)\\b"
         }
       ]
     },
@@ -97,16 +254,57 @@
           "match": "\\b(?:i2c|uart|spi)\\b"
         },
         {
-          "name": "support.class.builtin-part.schrune",
+          "name": "entity.name.type.part.schrune",
           "match": "\\b(?:Resistor|Capacitor|Inductor|Diode)\\b"
+        }
+      ]
+    },
+    "nestedBraceBlock": {
+      "begin": "(\\{)",
+      "end": "(\\})",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.braces.begin.schrune" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.braces.end.schrune" }
+      },
+      "patterns": [
+        { "include": "$self" }
+      ]
+    },
+    "brackets": {
+      "patterns": [
+        {
+          "name": "punctuation.section.parentheses.schrune",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.section.brackets.schrune",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.section.braces.schrune",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.definition.type.schrune",
+          "match": "[<>]"
         }
       ]
     },
     "propertyAccess": {
       "patterns": [
         {
+          "name": "variable.other.property.rail-side.schrune",
+          "match": "\\.(?:h|l)\\b"
+        },
+        {
+          "name": "variable.other.property.declaration.schrune",
+          "match": "\\.(?:voltage|name|place)\\b"
+        },
+        {
           "name": "variable.other.property.schrune",
-          "match": "\\.(?:h|l|name|voltage|SDA|SCL|RX|TX|MOSI|MISO|CLK)\\b"
+          "match": "\\.(?:SDA|SCL|RX|TX|MOSI|MISO|CLK)\\b"
         }
       ]
     }
