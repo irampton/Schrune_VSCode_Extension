@@ -219,21 +219,6 @@
           "type": "webview"
         }
       ]
-    },
-    "configuration": {
-      "title": "Schrune",
-      "properties": {
-        "schrune.cli.executable": {
-          "type": "string",
-          "default": "",
-          "description": "CLI executable to run for Schrune commands. Leave empty to auto-detect a local Schrune checkout or fall back to schrune on PATH."
-        },
-        "schrune.cli.scriptPath": {
-          "type": "string",
-          "default": "",
-          "description": "Optional path to the Schrune Node entrypoint. Set this when schrune.cli.executable should be node."
-        }
-      }
     }
   },
   "scripts": {

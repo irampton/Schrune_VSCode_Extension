@@ -1248,61 +1248,26 @@ function toRelativeIncludePath(documentUri, targetPath) {
   return relative.startsWith(".") ? relative : `./${relative}`;
 }
 
-function getCliConfig() {
-  const config = vscode.workspace.getConfiguration("schrune.cli");
+function defaultCliCommand() {
+  const command = process.platform === "win32" ? "schrune.cmd" : "schrune";
   return {
-    executable: normalizeCommand(config.get("executable", "")),
-    scriptPath: normalizePathSetting(config.get("scriptPath", "")),
-  };
-}
-
-function normalizeCommand(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizePathSetting(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function defaultCliCommand(context) {
-  const localApp = path.resolve(context.extensionPath, "..", "Schrune", "src", "app.js");
-  if (fs.existsSync(localApp)) {
-    return {
-      command: process.execPath,
-      args: [localApp],
-      label: `node ${localApp}`,
-    };
-  }
-
-  return {
-    command: "schrune",
+    command,
     args: [],
-    label: "schrune",
+    label: command,
   };
 }
 
-function resolveCliInvocation(context, extraArgs = []) {
-  const configured = getCliConfig();
-  const fallback = defaultCliCommand(context);
-
-  if (configured.executable) {
-    const args = configured.scriptPath ? [configured.scriptPath, ...extraArgs] : [...extraArgs];
-    return {
-      command: configured.executable,
-      args,
-      label: configured.scriptPath ? `${configured.executable} ${configured.scriptPath}` : configured.executable,
-    };
-  }
-
+function resolveCliInvocation(extraArgs = []) {
+  const invocation = defaultCliCommand();
   return {
-    command: fallback.command,
-    args: [...fallback.args, ...extraArgs],
-    label: fallback.label,
+    command: invocation.command,
+    args: [...invocation.args, ...extraArgs],
+    label: invocation.label,
   };
 }
 
 async function runCliArgs(context, args, cwd, promptResponses) {
-  const invocation = resolveCliInvocation(context, args);
+  const invocation = resolveCliInvocation(args);
   const workingDir = cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
   const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(invocation.command);
 

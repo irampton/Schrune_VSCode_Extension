@@ -10,16 +10,14 @@ This extension adds:
 ## CLI setup
 
 The panel runs each command in the directory of the selected `schrune.json`. It
-tries to run Schrune in this order:
+uses the globally installed Schrune npm command (`schrune.cmd` on Windows and
+`schrune` on other platforms).
 
-1. A sibling checkout at `../Schrune/src/app.js` if it exists
-2. A configured executable from `schrune.cli.executable`
-3. `schrune` on `PATH`
+Install the CLI globally before using the panel:
 
-If you want to use a local Schrune checkout directly, set:
-
-- `schrune.cli.executable` to `node`
-- `schrune.cli.scriptPath` to the Schrune `src/app.js` path
+```sh
+npm install --global schrune
+```
 
 ## Commands
 
