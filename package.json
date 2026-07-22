@@ -17,10 +17,13 @@
   ],
   "activationEvents": [
     "onLanguage:schrune",
+    "onCommand:schrune.buildProject",
     "onCommand:schrune.buildCurrentFile",
     "onCommand:schrune.buildFile",
     "onCommand:schrune.addPart",
     "onCommand:schrune.openProject",
+    "onCommand:schrune.installParts",
+    "onCommand:schrune.createProject",
     "onView:schruneCliView"
   ],
   "main": "./extension.js",
@@ -61,12 +64,8 @@
     ],
     "commands": [
       {
-        "command": "schrune.buildCurrentFile",
-        "title": "Schrune: Build Current File"
-      },
-      {
-        "command": "schrune.buildFile",
-        "title": "Schrune: Build File..."
+        "command": "schrune.buildProject",
+        "title": "Schrune: Build Selected Project"
       },
       {
         "command": "schrune.addPart",
@@ -75,6 +74,14 @@
       {
         "command": "schrune.openProject",
         "title": "Schrune: Open Project in KiCad"
+      },
+      {
+        "command": "schrune.installParts",
+        "title": "Schrune: Install Project Parts"
+      },
+      {
+        "command": "schrune.createProject",
+        "title": "Schrune: Create Project..."
       },
       {
         "command": "schrune.refreshCliView",
@@ -94,7 +101,8 @@
       "schruneTools": [
         {
           "id": "schruneCliView",
-          "name": "CLI"
+          "name": "CLI",
+          "type": "webview"
         }
       ]
     },
@@ -110,11 +118,6 @@
           "type": "string",
           "default": "",
           "description": "Optional path to the Schrune Node entrypoint. Set this when schrune.cli.executable should be node."
-        },
-        "schrune.kicad.executable": {
-          "type": "string",
-          "default": "",
-          "description": "KiCad executable used by the open project command. Leave empty to use kicad on PATH."
         }
       }
     }

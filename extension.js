@@ -2,7 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { spawn, spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 const vscode = require("vscode");
 
 const SCHRUNE_KEYWORDS = [
@@ -53,16 +53,25 @@ function activate(context) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("schrune.buildCurrentFile", () => buildCurrentFile(context, false))
+    vscode.commands.registerCommand("schrune.buildProject", () => cliProvider.runProjectCommand("build"))
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("schrune.buildFile", () => buildSelectedFile(context))
+    vscode.commands.registerCommand("schrune.buildCurrentFile", () => cliProvider.runProjectCommand("build"))
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("schrune.addPart", () => addPart(context))
+    vscode.commands.registerCommand("schrune.buildFile", () => cliProvider.runProjectCommand("build"))
   );
   context.subscriptions.push(
-    vscode.commands.registerCommand("schrune.openProject", () => openGeneratedKiCadProject(context))
+    vscode.commands.registerCommand("schrune.addPart", () => cliProvider.addPart())
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("schrune.openProject", () => cliProvider.runProjectCommand("open-kicad"))
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("schrune.installParts", () => cliProvider.runProjectCommand("parts-install"))
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("schrune.createProject", () => cliProvider.createProject())
   );
   context.subscriptions.push(
     vscode.commands.registerCommand("schrune.refreshCliView", () => {
@@ -72,10 +81,18 @@ function activate(context) {
     })
   );
 
-  cliProvider = new SchruneCliProvider();
+  cliProvider = new SchruneCliProvider(context);
+  void cliProvider.refresh();
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider("schruneCliView", cliProvider)
+    vscode.window.registerWebviewViewProvider("schruneCliView", cliProvider)
   );
+
+  const manifestWatcher = vscode.workspace.createFileSystemWatcher("**/schrune.json");
+  manifestWatcher.onDidCreate(() => cliProvider.refresh());
+  manifestWatcher.onDidChange(() => cliProvider.refresh());
+  manifestWatcher.onDidDelete(() => cliProvider.refresh());
+  context.subscriptions.push(manifestWatcher);
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => cliProvider.refresh()));
 }
 
 function deactivate() {}
@@ -135,55 +152,281 @@ class SchruneCompletionProvider {
 class SchruneCliProvider {
   constructor(context) {
     this.context = context;
-    this.emitter = new vscode.EventEmitter();
-    this.onDidChangeTreeData = this.emitter.event;
+    this.projects = [];
+    this.selectedManifest = undefined;
   }
 
-  refresh() {
-    this.emitter.fire();
+  async resolveWebviewView(webviewView) {
+    this.view = webviewView;
+    webviewView.webview.options = { enableScripts: true };
+    webviewView.webview.html = this.getHtml(webviewView.webview);
+    webviewView.webview.onDidReceiveMessage((message) => this.handleMessage(message), undefined, this.context.subscriptions);
+    await this.refresh();
   }
 
-  getTreeItem(element) {
-    return element;
-  }
-
-  getChildren(element) {
-    if (element) {
-      return [];
+  async refresh() {
+    this.projects = await discoverProjects();
+    if (!this.projects.some((project) => project.manifestPath === this.selectedManifest)) {
+      this.selectedManifest = this.projects[0]?.manifestPath;
     }
-    return [
-      makeSectionItem("Parts"),
-      makeActionItem("Add LCSC part...", "Download and scaffold a part library entry", "schrune.addPart"),
-      makeSpacerItem(),
-      makeSectionItem("Build"),
-      makeActionItem("Build current file", "Run Schrune build for the active editor", "schrune.buildCurrentFile"),
-      makeActionItem("Build file...", "Choose a .schrune file and build it", "schrune.buildFile"),
-      makeSpacerItem(),
-      makeSectionItem("KiCad"),
-      makeActionItem("Open project in KiCad", "Open the generated KiCad project for the active design", "schrune.openProject"),
-    ];
+    this.postState();
+  }
+
+  postState() {
+    if (!this.view) {
+      return;
+    }
+    this.view.webview.postMessage({
+      type: "state",
+      projects: this.projects.map(({ manifestPath, label, description }) => ({ manifestPath, label, description })),
+      selectedManifest: this.selectedManifest,
+    });
+  }
+
+  selectedProject() {
+    return this.projects.find((project) => project.manifestPath === this.selectedManifest);
+  }
+
+  async ensureSelectedProject() {
+    if (!this.projects.length) {
+      await this.refresh();
+    }
+    return this.selectedProject();
+  }
+
+  async handleMessage(message) {
+    if (message.type === "selectProject") {
+      if (this.projects.some((project) => project.manifestPath === message.manifestPath)) {
+        this.selectedManifest = message.manifestPath;
+      }
+      return;
+    }
+    if (message.type === "refresh") {
+      await this.refresh();
+      return;
+    }
+    if (message.type === "createProject") {
+      await this.createProject();
+      return;
+    }
+    if (message.type === "run") {
+      if (message.command === "parts-add") {
+        await this.addPart();
+      } else {
+        await this.runProjectCommand(message.command);
+      }
+    }
+  }
+
+  async runProjectCommand(command) {
+    const project = await this.ensureSelectedProject();
+    if (!project) {
+      vscode.window.showErrorMessage("Select a Schrune project first.");
+      return;
+    }
+
+    const commandArgs = {
+      build: ["build"],
+      "parts-install": ["parts", "install"],
+      "open-kicad": ["open-kicad"],
+    }[command];
+    if (!commandArgs) {
+      return;
+    }
+    await runCliArgs(this.context, commandArgs, project.directory);
+    await this.refresh();
+  }
+
+  async addPart() {
+    const project = await this.ensureSelectedProject();
+    if (!project) {
+      vscode.window.showErrorMessage("Select a Schrune project first.");
+      return;
+    }
+    const partNumber = await vscode.window.showInputBox({
+      title: "Add Schrune part",
+      prompt: 'Enter an LCSC part number like "C29823"',
+      placeHolder: "C29823",
+      validateInput: (value) => (/^C\d+$/i.test(value.trim()) ? undefined : "Use an LCSC part number like C29823"),
+    });
+    if (partNumber) {
+      await runCliArgs(this.context, ["parts", "add", partNumber.trim().toUpperCase()], project.directory);
+      await this.refresh();
+    }
+  }
+
+  async createProject() {
+    const projectName = await vscode.window.showInputBox({
+      title: "Create Schrune project",
+      prompt: "Project name",
+      placeHolder: "My Project",
+      validateInput: (value) => {
+        if (!value.trim()) {
+          return "Enter a project name";
+        }
+        return toSafeFolderName(value) ? undefined : "Use a name containing at least one letter or number";
+      },
+    });
+    if (!projectName) {
+      return;
+    }
+
+    const folderName = toSafeFolderName(projectName);
+    const locations = await vscode.window.showOpenDialog({
+      title: `Select where to create ${folderName}`,
+      defaultUri: vscode.workspace.workspaceFolders?.[0]?.uri,
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: "Create Here",
+    });
+    if (!locations?.length) {
+      return;
+    }
+
+    const directory = path.join(locations[0].fsPath, folderName);
+    if (fs.existsSync(directory)) {
+      vscode.window.showErrorMessage(`The folder already exists: ${directory}`);
+      return;
+    }
+
+    const entryPath = path.join(directory, "main.schrune");
+    try {
+      fs.mkdirSync(directory);
+      fs.writeFileSync(entryPath, "module top () {\n\n}\n", "utf8");
+    } catch (error) {
+      vscode.window.showErrorMessage(`Could not create the Schrune project files: ${error.message}`);
+      return;
+    }
+
+    const created = await runCliArgs(this.context, ["create"], directory, [
+      { prompt: "Project name:", value: projectName.trim() },
+      { prompt: "Entry file:", value: "main.schrune" },
+    ]);
+    if (!created) {
+      return;
+    }
+    await this.refresh();
+    const createdPath = path.join(directory, "schrune.json");
+    if (this.projects.some((project) => project.manifestPath === createdPath)) {
+      this.selectedManifest = createdPath;
+      this.postState();
+    }
+    const document = await vscode.workspace.openTextDocument(entryPath);
+    await vscode.window.showTextDocument(document);
+  }
+
+  getHtml(webview) {
+    const nonce = `${Date.now()}${Math.random().toString(36).slice(2)}`;
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
+  <style nonce="${nonce}">
+    body { padding: 10px; color: var(--vscode-foreground); font-family: var(--vscode-font-family); }
+    label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: 600; }
+    select, button { box-sizing: border-box; min-height: 28px; }
+    select { flex: 1; min-width: 0; padding: 3px 6px; color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); border: 1px solid var(--vscode-dropdown-border); }
+    button { margin-bottom: 7px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; cursor: pointer; }
+    button.action, button#create { width: 100%; }
+    button:hover { background: var(--vscode-button-hoverBackground); }
+    button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+    button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+    button:disabled, select:disabled { opacity: .6; cursor: default; }
+    #create { margin-bottom: 14px; }
+    .project-row { display: flex; align-items: stretch; gap: 5px; margin-bottom: 12px; }
+    #refresh { flex: 0 0 28px; width: 28px; margin: 0; padding: 0; font-size: 17px; line-height: 1; }
+    .empty { margin: 0 0 12px; color: var(--vscode-descriptionForeground); font-size: 12px; }
+    .action-group + .action-group { margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <button id="create" class="secondary">Create Project&hellip;</button>
+  <label for="project">Project</label>
+  <div class="project-row">
+    <select id="project" disabled><option>Discovering projects&hellip;</option></select>
+    <button id="refresh" class="secondary" title="Refresh projects" aria-label="Refresh projects">&#x21BB;</button>
+  </div>
+  <p id="empty" class="empty" hidden>No schrune.json files found in this workspace.</p>
+  <div class="action-group">
+    <button class="action" data-command="parts-install">Install Project Parts</button>
+    <button class="action" data-command="parts-add">Add LCSC Part&hellip;</button>
+  </div>
+  <div class="action-group">
+    <button class="action" data-command="build">Build Project</button>
+    <button class="action" data-command="open-kicad">Open Project in KiCad</button>
+  </div>
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    const select = document.getElementById('project');
+    const empty = document.getElementById('empty');
+    const actions = [...document.querySelectorAll('[data-command]')];
+    select.addEventListener('change', () => vscode.postMessage({ type: 'selectProject', manifestPath: select.value }));
+    actions.forEach((button) => button.addEventListener('click', () => vscode.postMessage({ type: 'run', command: button.dataset.command })));
+    document.getElementById('create').addEventListener('click', () => vscode.postMessage({ type: 'createProject' }));
+    document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+    window.addEventListener('message', ({ data }) => {
+      if (data.type !== 'state') return;
+      select.replaceChildren();
+      for (const project of data.projects) {
+        const option = document.createElement('option');
+        option.value = project.manifestPath;
+        option.textContent = project.label;
+        option.title = project.description;
+        option.selected = project.manifestPath === data.selectedManifest;
+        select.appendChild(option);
+      }
+      const hasProjects = data.projects.length > 0;
+      select.disabled = !hasProjects;
+      empty.hidden = hasProjects;
+      actions.forEach((button) => button.disabled = !hasProjects);
+    });
+  </script>
+</body>
+</html>`;
   }
 }
 
-function makeActionItem(label, description, command) {
-  const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
-  item.description = description;
-  item.command = { command, title: label };
-  item.contextValue = "schruneCliAction";
-  return item;
+async function discoverProjects() {
+  const manifests = await vscode.workspace.findFiles("**/schrune.json", "**/{node_modules,build}/**");
+  const projects = manifests.map((uri) => {
+    const directory = path.dirname(uri.fsPath);
+    const folderName = path.basename(directory);
+    let projectName = folderName;
+    try {
+      const manifest = JSON.parse(fs.readFileSync(uri.fsPath, "utf8"));
+      if (typeof manifest.name === "string" && manifest.name.trim()) {
+        projectName = manifest.name.trim();
+      }
+    } catch {
+      // Keep invalid manifests discoverable so the CLI can report the problem.
+    }
+    return {
+      manifestPath: uri.fsPath,
+      directory,
+      label: `${projectName} — ${folderName}`,
+      description: vscode.workspace.asRelativePath(directory, false),
+    };
+  });
+  return projects.sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function makeSectionItem(label) {
-  const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
-  item.contextValue = "schruneSection";
-  item.description = "";
-  return item;
-}
+function toSafeFolderName(projectName) {
+  let folderName = projectName
+    .trim()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
 
-function makeSpacerItem() {
-  const item = new vscode.TreeItem(" ", vscode.TreeItemCollapsibleState.None);
-  item.contextValue = "schruneSpacer";
-  return item;
+  const windowsReservedNames = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+  if (windowsReservedNames.test(folderName)) {
+    folderName += "-project";
+  }
+  return folderName;
 }
 
 function getSnippets() {
@@ -868,68 +1111,6 @@ function getCliConfig() {
   };
 }
 
-function getKiCadConfig() {
-  const config = vscode.workspace.getConfiguration("schrune.kicad");
-  return {
-    executable: normalizeCommand(config.get("executable", "")),
-  };
-}
-
-function resolveKiCadExecutable() {
-  const configured = getKiCadConfig().executable;
-  if (configured) {
-    return configured;
-  }
-
-  const pathCandidates = [];
-  if (process.platform === "win32") {
-    const programFiles = [process.env["ProgramFiles"], process.env["ProgramFiles(x86)"]].filter(Boolean);
-    for (const root of programFiles) {
-      const kicadRoot = path.join(root, "KiCad");
-      if (!fs.existsSync(kicadRoot)) {
-        continue;
-      }
-
-      for (const versionDir of safeReadDir(kicadRoot)) {
-        pathCandidates.push(path.join(kicadRoot, versionDir, "bin", "kicad.exe"));
-        pathCandidates.push(path.join(kicadRoot, versionDir, "bin", "kicad"));
-      }
-    }
-  }
-
-  pathCandidates.push("kicad", "kicad.exe");
-
-  for (const candidate of pathCandidates) {
-    if (isExecutableOnPath(candidate)) {
-      return candidate;
-    }
-  }
-
-  return undefined;
-}
-
-function safeReadDir(dirPath) {
-  try {
-    return fs.readdirSync(dirPath, { withFileTypes: false });
-  } catch {
-    return [];
-  }
-}
-
-function isExecutableOnPath(command) {
-  if (!command) {
-    return false;
-  }
-
-  if (path.isAbsolute(command)) {
-    return fs.existsSync(command);
-  }
-
-  const check = process.platform === "win32" ? "where" : "which";
-  const result = spawnSync(check, [command], { stdio: "ignore", windowsHide: true });
-  return result.status === 0;
-}
-
 function normalizeCommand(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -975,101 +1156,8 @@ function resolveCliInvocation(context, extraArgs = []) {
   };
 }
 
-async function buildCurrentFile(context, keepJs) {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showErrorMessage("Open a Schrune file first.");
-    return;
-  }
-
-  const document = editor.document;
-  if (document.languageId !== "schrune" && !document.fileName.toLowerCase().endsWith(".schrune")) {
-    vscode.window.showErrorMessage("The active editor is not a Schrune file.");
-    return;
-  }
-
-  await runCli(context, "build", [keepJs ? "--keep-js" : null, document.uri.fsPath].filter(Boolean), path.dirname(document.uri.fsPath));
-}
-
-async function buildSelectedFile(context) {
-  const file = await pickSchruneFile();
-  if (!file) {
-    return;
-  }
-
-  await runCli(context, "build", [file], path.dirname(file));
-}
-
-async function addPart(context) {
-  const partNumber = await vscode.window.showInputBox({
-    title: "Add Schrune part",
-    prompt: 'Enter an LCSC part number like "C29823"',
-    placeHolder: "C29823",
-    validateInput: (value) => (/^C\d+$/i.test(value.trim()) ? undefined : "Use an LCSC part number like C29823"),
-  });
-
-  if (!partNumber) {
-    return;
-  }
-
-  await runCli(context, "add", [partNumber.trim().toUpperCase()], vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
-}
-
-async function openGeneratedKiCadProject(context) {
-  const sourceFile = resolveActiveSchruneFile();
-  if (!sourceFile) {
-    vscode.window.showErrorMessage("Open a Schrune file first.");
-    return;
-  }
-
-  const outputPath = getGeneratedKiCadProjectPath(sourceFile);
-  if (!fs.existsSync(outputPath)) {
-    vscode.window.showErrorMessage(`Missing generated KiCad project: ${outputPath}. Build the Schrune file first.`);
-    return;
-  }
-
-  await runKiCad(context, outputPath, path.dirname(sourceFile));
-}
-
-function getGeneratedKiCadProjectPath(sourceFile) {
-  const rootDir = path.dirname(sourceFile);
-  const projectDir = path.join(rootDir, "KiCad");
-  const stem = path.basename(sourceFile, ".schrune");
-  const rootName = path.basename(rootDir);
-  const candidates = listKiCadProjectFiles(projectDir);
-  if (!candidates.length) {
-    return path.join(projectDir, `${stem}.kicad_pro`);
-  }
-
-  const preferred = candidates.find((filePath) => {
-    const base = path.basename(filePath, ".kicad_pro");
-    return base === stem || base === rootName;
-  });
-
-  return preferred || candidates.sort((left, right) => left.localeCompare(right))[0];
-}
-
-function resolveActiveSchruneFile() {
-  const editor = vscode.window.activeTextEditor;
-  if (editor && editor.document.fileName.toLowerCase().endsWith(".schrune")) {
-    return editor.document.uri.fsPath;
-  }
-  return undefined;
-}
-
-function listKiCadProjectFiles(projectDir) {
-  if (!fs.existsSync(projectDir)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(projectDir)
-    .filter((entry) => entry.toLowerCase().endsWith(".kicad_pro"))
-    .map((entry) => path.join(projectDir, entry));
-}
-
-async function runCli(context, subcommand, args, cwd) {
-  const invocation = resolveCliInvocation(context, [subcommand, ...args]);
+async function runCliArgs(context, args, cwd, promptResponses) {
+  const invocation = resolveCliInvocation(context, args);
   const workingDir = cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
   const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(invocation.command);
 
@@ -1077,7 +1165,7 @@ async function runCli(context, subcommand, args, cwd) {
   outputChannel.appendLine(`> ${invocation.command} ${invocation.args.join(" ")}`);
   outputChannel.appendLine(`cwd: ${workingDir}`);
 
-  await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
       cwd: workingDir,
       env: process.env,
@@ -1085,12 +1173,45 @@ async function runCli(context, subcommand, args, cwd) {
       windowsHide: true,
     });
 
+    let promptBuffer = "";
+    let responseIndex = 0;
+    const respondToPrompts = (chunk) => {
+      if (!Array.isArray(promptResponses) || responseIndex >= promptResponses.length) {
+        return;
+      }
+
+      promptBuffer += String(chunk);
+      while (responseIndex < promptResponses.length) {
+        const response = promptResponses[responseIndex];
+        const promptIndex = promptBuffer.indexOf(response.prompt);
+        if (promptIndex < 0) {
+          break;
+        }
+
+        promptBuffer = promptBuffer.slice(promptIndex + response.prompt.length);
+        child.stdin.write(`${response.value}\n`);
+        responseIndex++;
+        if (responseIndex === promptResponses.length) {
+          child.stdin.end();
+        }
+      }
+      if (promptBuffer.length > 4096) {
+        promptBuffer = promptBuffer.slice(-4096);
+      }
+    };
+
     child.stdout.on("data", (chunk) => {
       outputChannel.append(normalizeOutput(chunk));
+      respondToPrompts(chunk);
     });
     child.stderr.on("data", (chunk) => {
       outputChannel.append(normalizeOutput(chunk));
+      respondToPrompts(chunk);
     });
+
+    if (!Array.isArray(promptResponses)) {
+      child.stdin.end();
+    }
 
     child.on("error", (error) => {
       outputChannel.appendLine("");
@@ -1107,53 +1228,9 @@ async function runCli(context, subcommand, args, cwd) {
 
       reject(new Error(`Schrune CLI exited with code ${code}`));
     });
-  }).catch((error) => {
+  }).then(() => true).catch((error) => {
     vscode.window.showErrorMessage(error.message);
-    return undefined;
-  });
-}
-
-async function runKiCad(context, filePath, cwd) {
-  const command = resolveKiCadExecutable();
-  if (!command) {
-    vscode.window.showErrorMessage("Could not find KiCad. Set schrune.kicad.executable to your KiCad binary.");
-    return;
-  }
-
-  const workingDir = cwd || path.dirname(filePath);
-  const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
-
-  outputChannel.show(true);
-  outputChannel.appendLine(`> ${command} ${filePath}`);
-  outputChannel.appendLine(`cwd: ${workingDir}`);
-
-  await new Promise((resolve, reject) => {
-    const child = spawn(command, [filePath], {
-      cwd: workingDir,
-      env: process.env,
-      shell: useShell,
-      windowsHide: true,
-      detached: false,
-    });
-
-    child.on("error", (error) => {
-      outputChannel.appendLine("");
-      outputChannel.appendLine(error.message);
-      reject(error);
-    });
-
-    child.on("close", (code) => {
-      outputChannel.appendLine("");
-      if (code === 0 || code === null) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`KiCad exited with code ${code}`));
-    });
-  }).catch((error) => {
-    vscode.window.showErrorMessage(error.message);
-    return undefined;
+    return false;
   });
 }
 
