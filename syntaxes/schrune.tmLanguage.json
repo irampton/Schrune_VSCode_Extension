@@ -4,6 +4,7 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#preprocessor" },
+    { "include": "#requires" },
     { "include": "#strings" },
     { "include": "#moduleDeclarations" },
     { "include": "#partDeclarations" },
@@ -33,6 +34,38 @@
         {
           "name": "meta.preprocessor.include.schrune",
           "match": "^\\s*#include\\b.*$"
+        }
+      ]
+    },
+    "requires": {
+      "patterns": [
+        {
+          "match": "(@)(require)(\\()([A-Za-z_]\\w*)(\\s+)(from)(\\s+)(\")([^\"]*)(\")(\\))(;)",
+          "captures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "keyword.declaration.schrune" },
+            "3": { "name": "punctuation.section.parentheses.begin.schrune" },
+            "4": { "name": "entity.name.namespace.require.schrune" },
+            "6": { "name": "keyword.import.from.schrune" },
+            "8": { "name": "string.quoted.double.schrune" },
+            "9": { "name": "string.quoted.double.schrune" },
+            "10": { "name": "string.quoted.double.schrune" },
+            "11": { "name": "punctuation.section.parentheses.end.schrune" },
+            "12": { "name": "punctuation.separator.schrune" }
+          }
+        },
+        {
+          "match": "(@)(require)(\\()(\")([^\"]*)(\")(\\))(;)",
+          "captures": {
+            "1": { "name": "keyword.declaration.schrune" },
+            "2": { "name": "keyword.declaration.schrune" },
+            "3": { "name": "punctuation.section.parentheses.begin.schrune" },
+            "4": { "name": "string.quoted.double.schrune" },
+            "5": { "name": "entity.name.namespace.require.schrune" },
+            "6": { "name": "string.quoted.double.schrune" },
+            "7": { "name": "punctuation.section.parentheses.end.schrune" },
+            "8": { "name": "punctuation.separator.schrune" }
+          }
         }
       ]
     },

@@ -78,7 +78,8 @@
               "entity.name.type.module.schrune",
               "entity.name.variable.module.schrune",
               "entity.name.type.part.schrune",
-              "entity.name.variable.part.schrune"
+              "entity.name.variable.part.schrune",
+              "entity.name.namespace.require.schrune"
             ],
             "settings": { "foreground": "#4DC7AE" }
           },
@@ -102,6 +103,10 @@
           },
           {
             "scope": "variable.other.property.declaration.schrune",
+            "settings": { "foreground": "#FF946C" }
+          },
+          {
+            "scope": "keyword.import.from.schrune",
             "settings": { "foreground": "#FF946C" }
           },
           {
