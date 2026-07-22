@@ -2,7 +2,7 @@
   "name": "schrune-vscode-extension",
   "displayName": "Schrune",
   "description": "Syntax highlighting, autocomplete, and CLI shortcuts for Schrune",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "publisher": "irampton",
   "repository": {
     "type": "git",
